@@ -1,37 +1,50 @@
-name: CI with Security Checks
+name: Security CI
 
 on:
   push:
+    branches: [ "**" ]
   pull_request:
+    branches: [ "**" ]
 
 jobs:
-  test-and-scan:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install dependencies (project)
         run: |
-          pip install -r requirements.txt
-          pip install safety bandit
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run Tests
-        run: pytest tests/
-
-      - name: Security Check 1 - Dependency Scan
+      - name: Install security tools
         run: |
-          echo "🔍 Checking for vulnerable dependencies..."
-          safety check
+          python -m pip install bandit safety
+
+      - name: Run unit tests (pytest)
+        run: |
+          pytest -q
+        continue-on-error: false
+
+      - name: Run Bandit (static security scan)
+        run: |
+          bandit -r . -f txt -o bandit-output.txt || true
+          echo "---- Bandit output ----"
+          cat bandit-output.txt || true
         continue-on-error: true
 
-      - name: Security Check 2 - Code Security Scan
+      - name: Run Safety (dependency vulnerability scan)
         run: |
-          echo "🔒 Scanning code for security issues..."
-          bandit -r src/ -ll
+          if [ -f requirements.txt ]; then
+            safety check --file=requirements.txt --full-report || true
+          else
+            pip freeze > installed.txt
+            safety check --file=installed.txt --full-report || true
+          fi
         continue-on-error: true
